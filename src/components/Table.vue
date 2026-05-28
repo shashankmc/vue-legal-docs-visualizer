@@ -298,7 +298,6 @@ defineExpose({
 <style scoped>
 .table-container {
   width: 100%;
-  min-height: 38rem;
   display: flex;
   flex-direction: column;
 }
