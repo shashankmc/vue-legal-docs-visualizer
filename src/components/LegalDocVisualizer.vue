@@ -148,5 +148,6 @@ const handleCitationClick = async (id: string) => {
 .visualization-container {
     width: 100%;
     height: 100%;
+    min-height: 38rem;
 }
 </style>

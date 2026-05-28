@@ -442,6 +442,7 @@ onBeforeUnmount(() => {
 .graph-container {
   width: 100%;
   height: 100%;
+  min-height: 38rem;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -463,7 +464,7 @@ onBeforeUnmount(() => {
 .cy-container {
   flex: 1;
   width: 100%;
-  min-height: 600px;
+  min-height: 30rem;
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 4px;

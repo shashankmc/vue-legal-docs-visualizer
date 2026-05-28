@@ -17,7 +17,7 @@
                    :paginator="true" 
                    :rows="10" 
                    scrollable 
-                   scrollHeight="600px"
+                   scrollHeight="30rem"
                    v-model:filters="filters"
                    v-model:first="currentPage"
                    :globalFilterFields="['ecli', 'date', 'summary', 'instance', 'domain', 'decisionSummary', 'topic', 'degree', 'inDegree', 'outDegree', 'community']"
@@ -298,6 +298,9 @@ defineExpose({
 <style scoped>
 .table-container {
   width: 100%;
+  min-height: 38rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .search-bar {
