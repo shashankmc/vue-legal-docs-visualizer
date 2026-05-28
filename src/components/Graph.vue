@@ -464,7 +464,6 @@ onBeforeUnmount(() => {
 .cy-container {
   flex: 1;
   width: 100%;
-  min-height: 30rem;
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 4px;

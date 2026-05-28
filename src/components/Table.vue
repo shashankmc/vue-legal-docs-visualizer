@@ -16,8 +16,7 @@
                    tableStyle="min-width: 50rem" 
                    :paginator="true" 
                    :rows="10" 
-                   scrollable 
-                   scrollHeight="30rem"
+                   scrollable
                    v-model:filters="filters"
                    v-model:first="currentPage"
                    :globalFilterFields="['ecli', 'date', 'summary', 'instance', 'domain', 'decisionSummary', 'topic', 'degree', 'inDegree', 'outDegree', 'community']"
