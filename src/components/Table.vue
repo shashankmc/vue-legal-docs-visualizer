@@ -19,7 +19,7 @@
                    scrollable
                    v-model:filters="filters"
                    v-model:first="currentPage"
-                   :globalFilterFields="['ecli', 'date', 'summary', 'instance', 'domain', 'decisionSummary', 'topic', 'degree', 'inDegree', 'outDegree', 'community']"
+                   :globalFilterFields="['ecli', 'date', 'summary', 'instance', 'domain', 'decisionSummary', 'topic', 'importance', 'degree', 'inDegree', 'outDegree', 'community']"
                    paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport"
                    currentPageReportTemplate="Showing {first} to {last} of {totalRecords} documents"
                    @row-click="onRowClick"
@@ -76,15 +76,17 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
+import { isEchrDocument, type LegalDocument, type LegalEdge } from './types'
 
 export interface Props {
   docs?: any[]
+  edges?: LegalEdge[]
 }
 
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  rowClick: [doc: any]
+  docClick: [doc: any]
 }>()
 
 // Initialize filters
@@ -105,17 +107,28 @@ interface Column {
   buttonText?: string
 }
 
-// Column configuration
-const columns: Column[] = [
+// ECHR documents don't have an Instance/Domain/Topic in the Rechtspraak sense - reusing those
+// column slots with ECHR data under RS-labeled headers (e.g. respondent_state under
+// "Instance") would show correct values under the wrong label, which is worse than just
+// labeling them correctly. Column set is dataset-aware; tableDocs below fills the same field
+// keys with the appropriate source data per dataset.
+const isEchrDataset = computed(() => {
+  const first = props.docs?.[0] as LegalDocument | undefined
+  return first ? isEchrDocument(first) : false
+})
+
+const columns = computed<Column[]>(() => [
   { field: 'fullTextUrl', header: 'Full Text', sortable: false, style: 'min-width: 80px; text-align: center;', type: 'link' },
   { field: 'ecli', header: 'ECLI', sortable: true, style: 'min-width: 200px', type: 'default' },
   { field: 'date', header: 'Date', sortable: true, style: 'min-width: 120px', type: 'default', sortField: 'dateValue' },
-  { field: 'summary', header: 'Summary', sortable: true, style: 'min-width: 300px', type: 'ellipsis', maxWidth: '300px' },
-  { field: 'instance', header: 'Instance', sortable: true, style: 'min-width: 200px', type: 'default' },
-  { field: 'domain', header: 'Domain', sortable: false, style: 'min-width: 180px', type: 'default' },
+  { field: 'summary', header: isEchrDataset.value ? 'Conclusion' : 'Summary', sortable: true, style: 'min-width: 300px', type: 'ellipsis', maxWidth: '300px' },
+  { field: 'instance', header: isEchrDataset.value ? 'Respondent State' : 'Instance', sortable: true, style: 'min-width: 200px', type: 'default' },
+  { field: 'domain', header: isEchrDataset.value ? 'Keywords' : 'Domain', sortable: false, style: 'min-width: 180px', type: 'default' },
   { field: 'decisionSummary', header: 'Decision Summary', sortable: true, style: 'min-width: 150px', type: 'default' },
   { field: 'timesCited', header: 'Times Cited', sortable: true, style: 'min-width: 120px', type: 'default' },
-  { field: 'topic', header: 'Topic', sortable: true, style: 'min-width: 150px', type: 'default' },
+  ...(isEchrDataset.value
+    ? [{ field: 'importance', header: 'Importance', sortable: true, style: 'min-width: 110px', type: 'default' } as Column]
+    : [{ field: 'topic', header: 'Topic', sortable: true, style: 'min-width: 150px', type: 'default' } as Column]),
   { field: 'degree', header: 'Degree', sortable: true, style: 'min-width: 100px', type: 'number', sortField: 'degreeValue' },
   { field: 'inDegree', header: 'In Degree', sortable: true, style: 'min-width: 100px', type: 'number', sortField: 'inDegreeValue' },
   { field: 'outDegree', header: 'Out Degree', sortable: true, style: 'min-width: 100px', type: 'number', sortField: 'outDegreeValue' },
@@ -124,10 +137,15 @@ const columns: Column[] = [
   { field: 'closenessCentrality', header: 'Closeness', sortable: true, style: 'min-width: 120px', type: 'number', sortField: 'closenessCentralityValue' },
   { field: 'pageRank', header: 'PageRank', sortable: true, style: 'min-width: 120px', type: 'number', sortField: 'pageRankValue' },
   { field: 'community', header: 'Community', sortable: true, style: 'min-width: 120px', type: 'number', sortField: 'communityValue' }
-]
+])
 
 const selectedRow = ref<any>(null)
 const currentPage = ref(0)
+
+const buildHudocUrl = (itemid: string): string => {
+  const encodedItemid = encodeURIComponent(itemid)
+  return `https://hudoc.echr.coe.int/eng#%7B%22itemid%22:%5B%22${encodedItemid}%22%5D%7D`
+}
 
 const highlightRowById = (ecli: string) => {
   if (tableDocs.value) {
@@ -165,15 +183,28 @@ const highlightRowById = (ecli: string) => {
   }
 }
 
+// Count incoming edges per doc when the authoritative edges array is provided (ECHR docs
+// don't populate cited_by themselves)
+const citedByCount = computed(() => {
+  const counts = new Map<string, number>()
+  if (!props.edges) return counts
+  props.edges.forEach(edge => {
+    counts.set(edge.target, (counts.get(edge.target) || 0) + 1)
+  })
+  return counts
+})
+
 // Simplified table data structure
 const tableDocs = computed(() => {
   if (!props.docs || props.docs.length === 0) return []
-  
+
   return props.docs.map(doc => {
     const data = doc.data || {}
-    
-    // Parse date string to Date object for proper sorting
-    const dateStr = data.date_decision
+    const isEchr = data.dataset === 'ECHR'
+
+    // Parse date string to Date object for proper sorting - ECHR's primary date is
+    // date_judgment; date_decision there maps to a different (often absent) field.
+    const dateStr = isEchr ? (data.date_judgment || data.date_decision) : data.date_decision
     let dateValue: Date | null = null
     let dateDisplay = '-'
     
@@ -210,14 +241,15 @@ const tableDocs = computed(() => {
       ecli: doc.id || '-',
       date: dateDisplay,
       dateValue: dateValue,
-      summary: data.summary || '-',
-      instance: data.instance || '-',
-      domain: Array.isArray(data.domains) && data.domains.length > 0 
-        ? data.domains.join(', ') 
-        : '-',
+      summary: (isEchr ? data.conclusion : data.summary) || '-',
+      instance: (isEchr ? data.respondent_state : data.instance) || '-',
+      domain: isEchr
+        ? (Array.isArray(data.keywords) && data.keywords.length > 0 ? data.keywords.join(', ') : '-')
+        : (Array.isArray(data.domains) && data.domains.length > 0 ? data.domains.join(', ') : '-'),
       decisionSummary: data.document_type || '-',
-      timesCited: Array.isArray(data.cited_by) ? data.cited_by.length : 0,
-      topic: data.procedure_type || '-',
+      timesCited: props.edges ? (citedByCount.value.get(doc.id) || 0) : (Array.isArray(data.cited_by) ? data.cited_by.length : 0),
+      topic: isEchr ? '-' : (data.procedure_type || '-'),
+      importance: isEchr && data.importance !== undefined && data.importance !== null ? `${data.importance}/4` : '-',
       degree: formatNumber(stats.degree),
       degreeValue: getNumValue(stats.degree),
       inDegree: formatNumber(stats.inDegree),
@@ -234,7 +266,9 @@ const tableDocs = computed(() => {
       pageRankValue: getNumValue(stats.pageRank),
       community: formatNumber(stats.community),
       communityValue: getNumValue(stats.community),
-      fullTextUrl: data.url_publication || null
+      fullTextUrl: isEchr
+        ? (data.itemid ? buildHudocUrl(data.itemid) : null)
+        : (data.url_publication || null)
     }
   })
 })
@@ -243,7 +277,7 @@ const tableDocs = computed(() => {
 const onRowClick = (event: any) => {
   const nodeId = event.data.ecli
   highlightRowById(nodeId)
-  emit('rowClick', nodeId)
+  emit('docClick', nodeId)
 }
 
 // Open full text URL in new tab
@@ -255,13 +289,13 @@ const openFullText = (url: string) => {
 const exportCSV = () => {
   if (tableDocs.value.length === 0) return
   // Define headers
-  const headers = columns.filter(col => col.type !== 'button' && col.type !== 'link').map(col => col.header)
-  
+  const headers = columns.value.filter(col => col.type !== 'button' && col.type !== 'link').map(col => col.header)
+
   // Create CSV content
   const csvContent = [
     headers.join(','),
     ...tableDocs.value.map(row => {
-      return columns
+      return columns.value
         .filter(col => col.type !== 'button' && col.type !== 'link')
         .map(col => {
           const value = (row as any)[col.field]

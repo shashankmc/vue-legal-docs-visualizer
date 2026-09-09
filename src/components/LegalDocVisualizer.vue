@@ -18,40 +18,58 @@
         </div>
 
         <div class="content">
-            <div v-if="currentMode === VisualizationMode.TABLE" class="visualization-container">
-                <Table ref="refTableComponent" :docs="docs" @row-click="handleDocClick" />
-            </div>
-            <div v-else-if="currentMode === VisualizationMode.GRAPH" class="visualization-container">
-                <Graph ref="refGraphComponent" :docs="docs" @node-click="handleDocClick" />
-            </div>
+            <KeepAlive>
+                <component
+                    :is="currentMode === VisualizationMode.TABLE ? Table : Graph"
+                    ref="currentComponentRef"
+                    :docs="docs"
+                    :edges="edges"
+                    @doc-click="handleDocClick"
+                    @cluster-click="handleClusterClick"
+                    class="visualization-container"
+                />
+            </KeepAlive>
         </div>
 
-        <DocumentInfo :document="selectedDocument" :docs="docs" v-model:visible="drawerVisible"
+        <DocumentInfo :document="selectedDocument" :docs="docs" :edges="edges" v-model:visible="drawerVisible"
             @citation-click="handleCitationClick" />
+
+        <ClusterPreview :documents="selectedClusterDocuments" :edges="edges" v-model:visible="clusterModalVisible" />
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
-import type { LegalDocument } from 'legal-docs-client'
+import { ref, nextTick, computed } from 'vue'
+import type { LegalDocument, LegalEdge } from './types'
 import Button from 'primevue/button'
 import Table from './Table.vue'
 import DocumentInfo from './DocumentInfo.vue'
+import ClusterPreview from './ClusterPreview.vue'
 import { VisualizationMode } from './types'
 import Graph from './Graph.vue'
 import 'primeicons/primeicons.css'
 
 export interface Props {
     docs?: LegalDocument[]
+    edges?: LegalEdge[]
 }
 
 const props = defineProps<Props>();
 
 const selectedDocument = ref<LegalDocument | null>(null)
 const drawerVisible = ref(false)
+const selectedClusterDocuments = ref<LegalDocument[]>([])
+const clusterModalVisible = ref(false)
 const currentMode = ref(VisualizationMode.TABLE)
-const refGraphComponent = ref<InstanceType<typeof Graph> | null>(null)
-const refTableComponent = ref<InstanceType<typeof Table> | null>(null);
+const currentComponentRef = ref<InstanceType<typeof Graph> | InstanceType<typeof Table> | null>(null)
+
+const refGraphComponent = computed(() => {
+    return currentMode.value === VisualizationMode.GRAPH ? currentComponentRef.value as InstanceType<typeof Graph> : null
+})
+
+const refTableComponent = computed(() => {
+    return currentMode.value === VisualizationMode.TABLE ? currentComponentRef.value as InstanceType<typeof Table> : null
+})
 
 const handleDocClick = async (id: string) => {
     const doc = props.docs?.find(d => d.id === id)
@@ -65,6 +83,16 @@ const handleDocClick = async (id: string) => {
     selectedDocument.value = doc
     await nextTick()
     drawerVisible.value = true
+}
+
+const handleClusterClick = async (payload: { clusterId: string; documents: LegalDocument[] }) => {
+    if (clusterModalVisible.value) {
+        clusterModalVisible.value = false
+        await nextTick()
+    }
+    selectedClusterDocuments.value = payload.documents
+    await nextTick()
+    clusterModalVisible.value = true
 }
 
 const handleCitationClick = async (id: string) => {
@@ -84,9 +112,15 @@ const handleCitationClick = async (id: string) => {
 
 </script>
 
-<style scoped>
+<style>
+/* Non-scoped to apply font-family globally within component */
 .legal-doc-visualizer {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+}
+</style>
+
+<style scoped>
+.legal-doc-visualizer {
     font-size: 14px;
     display: flex;
     flex-direction: column;
