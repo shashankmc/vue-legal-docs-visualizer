@@ -477,6 +477,22 @@ const generateClusterColors = (parentIds: string[]): Map<string, string> => {
   return colorMap
 }
 
+// BlueLab link types -> edge colours (docs/MODULARIZATION_PLAN.md §6, "Graph
+// step"). Any other relation_type falls back to the neutral edge colour.
+const RELATION_COLORS: Record<string, string> = {
+  definition: '#2980b9',
+  carve_out: '#e67e22',
+  routing: '#8e44ad',
+  safe_harbour: '#16a085',
+  triggering: '#c0392b',
+  implementation: '#27ae60',
+  conflict: '#d35400',
+  cumulation: '#7f8c8d'
+}
+
+const relationColor = (type?: string): string =>
+  (type && RELATION_COLORS[type]) || '#95a5a6'
+
 const initGraph = async () => {
   if (!cyContainer.value || !props.docs || props.docs.length === 0) {
     isLoading.value = false
@@ -496,6 +512,14 @@ const initGraph = async () => {
   // with that document's actual node (edges attaching straight to "squares", cluster clicks
   // shadowing real document clicks). Prefixing the community number rules out any collision.
   const getClusterKey = (doc: any): string | undefined => {
+    // An explicit host grouping key wins over the community-detection cluster:
+    // BlueLab sets data.parent (or data.instrument) to the instrument id so the
+    // graph compounds provisions per instrument. Prefixing rules out a
+    // collision with a real document id, same as the community case below.
+    const explicit = doc.data?.parent ?? doc.parent
+    if (explicit !== undefined && explicit !== null && explicit !== '') {
+      return `cluster-${explicit}`
+    }
     const community = doc.data?.statistics?.community
     return community === undefined || community === null ? undefined : `cluster-${community}`
   }
@@ -509,6 +533,16 @@ const initGraph = async () => {
     }
   })
   const parentColorMap = generateClusterColors(Array.from(docsByCluster.keys()))
+
+  // A human label per cluster when the host names one (BlueLab's instrument
+  // title), falling back to the document count in the parent-node label below.
+  const clusterTitles = new Map<string, string>()
+  props.docs.forEach(doc => {
+    const clusterKey = getClusterKey(doc)
+    if (!clusterKey) return
+    const title = doc.data?.instrument_title || doc.data?.parent || doc.parent
+    if (title && !clusterTitles.has(clusterKey)) clusterTitles.set(clusterKey, String(title))
+  })
 
   // Create a Set of valid node IDs for edge validation
   const validNodeIds = new Set(props.docs.map(doc => doc.id))
@@ -551,7 +585,7 @@ const initGraph = async () => {
     .map(([clusterId, docsInCluster]) => ({
       data: {
         id: clusterId,
-        label: `${docsInCluster.length} documents`,
+        label: clusterTitles.get(clusterId) || `${docsInCluster.length} documents`,
         color: parentColorMap.get(clusterId) || '#3498db',
         size: calculateClusterSize(docsInCluster.length),
         isClusterParent: true,
@@ -624,7 +658,14 @@ const initGraph = async () => {
             data: {
               id: edgeId,
               source: edge.source,
-              target: edge.target
+              target: edge.target,
+              // BlueLab link type; rendered as a label and colour when present.
+              ...(edge.relation_type
+                ? {
+                    relation_type: edge.relation_type,
+                    relationColor: relationColor(edge.relation_type)
+                  }
+                : {})
             }
           })
           addedEdges.add(edgeId)
@@ -781,6 +822,24 @@ const initGraph = async () => {
           'line-color': '#95a5a6',
           'target-arrow-color': '#95a5a6',
           'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier'
+        }
+      },
+      {
+        // A typed edge (BlueLab link): colour and label it by relation_type so
+        // the eight link types are distinguishable. Edges without a
+        // relation_type keep the neutral look from the base `edge` rule.
+        selector: 'edge[relation_type]',
+        style: {
+          'line-color': 'data(relationColor)',
+          'target-arrow-color': 'data(relationColor)',
+          'label': 'data(relation_type)',
+          'font-size': 8,
+          'color': '#495057',
+          'text-outline-color': '#ffffff',
+          'text-outline-width': 2,
+          'text-rotation': 'autorotate',
+          'text-margin-y': -6,
           'curve-style': 'bezier'
         }
       },
