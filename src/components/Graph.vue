@@ -915,8 +915,9 @@ const initGraph = async () => {
         }
       },
       {
-        // Expanded cluster: just a loose dashed boundary behind its (individually visible)
-        // member nodes - no fill/label so it doesn't compete visually with its children.
+        // Expanded cluster: a loose dashed boundary behind its (individually visible)
+        // member nodes, with the cluster's title rendered just above the boundary so
+        // an expanded cluster stays identifiable like its collapsed placeholder.
         selector: 'node[?isClusterParent]',
         style: {
           'background-color': 'data(color)',
@@ -925,7 +926,24 @@ const initGraph = async () => {
           'border-style': 'dashed',
           'border-color': 'data(color)',
           'shape': 'round-rectangle',
-          'label': ''
+          'label': 'data(label)',
+          'text-valign': 'top',
+          'text-halign': 'center',
+          'text-margin-y': -10,
+          'font-size': 10,
+          'font-weight': 'bold',
+          'color': '#212529',
+          'text-max-width': '220',
+          'text-wrap': 'ellipsis'
+        }
+      },
+      {
+        // Node labels hidden below the detail zoom threshold (see
+        // updateLabelVisibility): at low zoom they collide into an unreadable band.
+        // Hovering a node still opens its tooltip, so identification survives.
+        selector: 'node.labels-hidden',
+        style: {
+          'text-opacity': 0
         }
       },
       {
@@ -1053,6 +1071,25 @@ const initGraph = async () => {
   // support it (verified directly in cytoscape-fcose's source) - cast to work around that.
   cy.layout({ ...layoutConfig, eles: getLayoutEles() } as any).run()
 
+  // Node labels only render once zoomed in far enough for them to be readable:
+  // below the threshold the labels (not the nodes) are what collide. A class on
+  // the nodes drives it, refreshed on every zoom event; the collapsed-cluster
+  // placeholders keep theirs at any zoom (they ARE the cluster's identity), and
+  // hovering a node always opens its tooltip regardless of zoom.
+  const labelZoomThreshold = 0.4
+  let labelsVisible: boolean | null = null
+  const updateLabelVisibility = () => {
+    if (!cy) return
+    const visible = cy.zoom() >= labelZoomThreshold
+    if (visible === labelsVisible) return
+    labelsVisible = visible
+    const labeled = cy.nodes('[!isClusterParent]')
+    if (visible) labeled.removeClass('labels-hidden')
+    else labeled.addClass('labels-hidden')
+  }
+  cy.on('zoom', updateLabelVisibility)
+  updateLabelVisibility()
+
   // Whenever the user manually expands/collapses a cluster by clicking it, re-layout
   // incrementally (randomize: false) so unrelated nodes don't jump around.
   const relayoutConfig = { ...layoutConfig, randomize: false, animate: true }
@@ -1063,8 +1100,18 @@ const initGraph = async () => {
   })
 
   // Cluster interaction now happens entirely through the hover popup (Expand/Collapse +
-  // Summary buttons, see showClusterTooltip above) - tapping a cluster's body no longer does
-  // anything special, only real document nodes respond to tap.
+  // Summary buttons, see showClusterTooltip above) - except that tapping a cluster body
+  // itself opens the cluster preview (the same documents view the popup's Summary button
+  // opens), in both its collapsed and expanded states.
+  cy.on('tap', 'node[?isClusterParent]', (event) => {
+    if (selectionMode.value) return
+    const node = event.target
+    emit('clusterClick', {
+      clusterId: node.data('id'),
+      documents: docsByCluster.get(node.data('id')) || []
+    })
+  })
+
   cy.on('tap', 'node[!isClusterParent]', (event) => {
     if (selectionMode.value) return
     const node = event.target
